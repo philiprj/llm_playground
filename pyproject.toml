@@ -1,0 +1,102 @@
+[tool.poetry]
+name = "llm_tools"
+version = "0.1.0"
+description = "Playground for working with LLMs"
+authors = ["philiprj <philiprj2@gmail.com>"]
+readme = "README.md"
+repository = "https://github.com/philiprj/llm_playground"
+keywords = ["llm"]
+package-mode = false
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.12"
+pandas = ">=2.0, <3.0"
+numpy = ">=1.0, <2.0"
+langchain = ">=0.3, <0.4"
+langchain-anthropic = ">=0.2,<0.3"
+langgraph = ">=0.2.20, <0.3"
+langsmith = "*"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "*"                   # Testing
+pytest-cov = "*"               # Testing Coverage
+jupyter = "*"                  # Core Jupyter metapackage
+jupyterlab = "*"               # JupyterLab IDE interface
+python-dotenv = "*"            # Load environment variables from .env file
+ruff = "*"                     # Fast linter and formatter (replaces black, isort, flake8)
+mypy = "*"                     # Static type checking
+mkdocs = "*"                   # Documentation
+sphinx = "*"                   # Documentation generator
+sphinx-autodoc-typehints = "*" # Type hints for better Sphinx documentation
+pre-commit = "*"               # Pre-commit hooks for running checks automatically
+ipython = "*"                  # Interactive Python shell for experiments
+tox = "*"                      # Test automation across multiple environments
+hypothesis = "*"               # Property-based testing for more robust tests
+
+
+[tool.ruff]
+# Select rules to enable
+select = [
+    "E",  # pycodestyle errors
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "UP", # pyupgrade
+    "N",  # pep8-naming
+    "W",  # pycodestyle warnings
+]
+target-version = "py311"
+line-length = 88
+
+[tool.ruff.format]
+docstring-code-format = true
+quote-style = "double"
+
+[tool.ruff.isort]
+combine-as-imports = true
+lines-after-imports = 2
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+check_untyped_defs = true
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q --cov=src"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "pass",
+    "raise ImportError",
+]
+ignore_errors = true
+omit = ["tests/*", "setup.py"]
+
+[tool.tox]
+legacy_tox_ini = """
+[tox]
+envlist = py311
+isolated_build = True
+
+[testenv]
+deps = pytest
+commands = pytest
+"""
