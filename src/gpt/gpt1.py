@@ -67,7 +67,7 @@ def estimate_loss(model):
         losses = torch.zeros(eval_iters)
         for k in range(eval_iters):
             x, y = get_batch(split)
-            logits, loss = model(x, y)
+            _, loss = model(x, y)
             losses[k] = loss.item()
         out[split] = losses.mean()
     model.train()
@@ -152,7 +152,7 @@ class Block(nn.Module):
 
 
 # super simple bigram model
-class BigramLanguageModel(nn.Module):
+class GPT1(nn.Module):
     def __init__(self):
         super().__init__()
         # each token directly reads off the logits for the next token from a lookup table
@@ -200,7 +200,7 @@ class BigramLanguageModel(nn.Module):
         return idx
 
 
-model = BigramLanguageModel()
+model = GPT1()
 m = model.to(device)
 
 # create a PyTorch optimizer
