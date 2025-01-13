@@ -34,6 +34,9 @@ lock:
 install:
 	$(POETRY) install
 
+install-main:
+	$(POETRY) install --only main
+
 update:
 	$(POETRY) update
 
