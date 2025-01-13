@@ -10,6 +10,7 @@ import tiktoken
 import torch
 import torch.distributed as dist
 import torch.nn as nn
+from huggingface_hub import snapshot_download
 from torch.distributed import destroy_process_group, init_process_group
 from torch.nn import functional as F  # noqa: N812
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -40,13 +41,13 @@ class CausalSelfAttention(nn.Module):
         # regularization
         self.n_head = config.n_head
         self.n_embd = config.n_embd
-        # Mask
-        self.register_buffer(
-            "bias",
-            torch.tril(torch.ones(config.block_size, config.block_size)).view(
-                1, 1, config.block_size, config.block_size
-            ),
-        )
+        # Old - removed with flash attention
+        # self.register_buffer(
+        #     "bias",
+        #     torch.tril(torch.ones(config.block_size, config.block_size)).view(
+        #         1, 1, config.block_size, config.block_size
+        #     ),
+        # )
 
     def forward(self, x):
         B, T, C = x.size()  # Batch size, sequence length, and embedding dimension
@@ -172,7 +173,7 @@ class GPT(nn.Module):
         ), f"Cannot forward sequence of length {T}, block size is only {self.config.block_size}"
 
         # Get token and position embeddings
-        pos = torch.arange(0, T, device=idx.device)
+        pos = torch.arange(0, T, dtype=torch.long, device=idx.device)
         pos = self.transformer.wpe(pos)
         tok_emb = self.transformer.wte(idx)
         x = tok_emb + pos
@@ -185,7 +186,6 @@ class GPT(nn.Module):
         # Get the logits
         logits = self.lm_head(x)
         loss = None
-
         if targets is not None:
             # Compute the loss. We flatten from B, T, C to B*T, C
             loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
@@ -242,7 +242,7 @@ class GPT(nn.Module):
 
         return model
 
-    def configure_optimizers(self, weight_decay=0.1, learning_rate=3e-4, device="cpu"):
+    def configure_optimizers(self, weight_decay=0.1, learning_rate=3e-4, device_type="cpu"):
         # Step 1: get the parameters to optimize (requires_grad=True)
         param_dict = {n: p for n, p in self.named_parameters() if p.requires_grad}
         # Step 2: Create optimizer groups. All 2D parameters will be decayed, all others unchanged
@@ -263,8 +263,8 @@ class GPT(nn.Module):
         )
         # Fused AdamW optimizer
         fused_available = "fused" in inspect.signature(torch.optim.AdamW).parameters
-        use_fused = fused_available and device == "cuda"
-        logger.info(f"using fused AdamW: {use_fused}")
+        use_fused = fused_available and device_type == "cuda"
+        logger.info(f"Using fused AdamW: {use_fused}")
 
         optimizer = torch.optim.AdamW(
             optimizer_grouped_parameters, lr=learning_rate, betas=(0.9, 0.95), eps=1e-8, fused=use_fused
@@ -279,6 +279,7 @@ class GPT(nn.Module):
 
 def load_tokens(file_path: str):
     npt = np.load(file_path)
+    npt = npt.astype(np.int32)
     ptt = torch.tensor(npt, dtype=torch.long)
     return ptt
 
@@ -337,9 +338,9 @@ class DataLoaderLite:
 
 if __name__ == "__main__":
     # Hyperparameters
-    # total_batch_size = 52488  # 2**19 ~ 0.5M used for nice number
+    # total_batch_size = 524288  # 2**19 ~ 0.5M used for nice number
     total_batch_size = 1024  # 2**20 ~ 1M used for nice number
-    B = 8  # Micro batch size (real is 16)
+    B = 8  # Micro batch size (real is 16/32/64 - depends on GPU size)
     T = 32  # Sequence length   (real is 1024)
 
     # Learning rate and optimizer parameters
@@ -384,11 +385,20 @@ if __name__ == "__main__":
     # Gradient Accumulation
     assert (
         total_batch_size % (B * T * ddp_world_size) == 0
-    ), "Total batch size must be divisible by micro batch size and sequence length"
+    ), "Total batch size must be divisible by micro batch size * sequence length * number of processes"
     gradient_accumulation_steps = total_batch_size // (B * T * ddp_world_size)
     if master_process:
         logger.info(f"Total batch size: {total_batch_size}")
         logger.info(f"Gradient accumulation steps: {gradient_accumulation_steps}")
+
+    # Download the tokenized data - this replaces the fineweb.py script
+    if master_process:
+        logger.info("Downloading tokenized data...")
+    repo_id = "jfzhang/edu_fineweb10B_tokens_npy_files"
+    local_dir = "./edu_fineweb10B/"
+    snapshot_download(repo_id=repo_id, repo_type="dataset", local_dir=local_dir)
+    if master_process:
+        logger.info("Tokenized data downloaded")
 
     # Get batches for training
     train_loader = DataLoaderLite(B=B, T=T, process_rank=ddp_rank, num_processes=ddp_world_size, split="train")
@@ -404,7 +414,7 @@ if __name__ == "__main__":
     model = GPT(GPTConfig(vocab_size=50304))
     model.to(device)
     use_compile = True  # compile can intefere with HellaSwag and text generation
-    if device == "cuda" and use_compile:
+    if device_type == "cuda" and use_compile:
         model = torch.compile(model)
     if ddp:
         model = DDP(model, device_ids=[ddp_local_rank])
@@ -424,14 +434,20 @@ if __name__ == "__main__":
         return min_lr + (max_lr - min_lr) * coeff
 
     # optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4, betas=(0.9, 0.95), eps=1e-8)
-    optimizer = raw_model.configure_optimizers(weight_decay=0.1, learning_rate=max_lr, device=device_type)
+    optimizer = raw_model.configure_optimizers(weight_decay=0.1, learning_rate=max_lr, device_type=device_type)
+
+    log_dir = "log"
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = os.path.join(log_dir, f"log_{ddp_rank}.txt")
+    with open(log_file, "w") as f:
+        pass
 
     for step in range(max_steps):
         t0 = time.time()
         last_step = step == max_steps - 1
 
         # Validate
-        if step % 100 == 0:
+        if step % 100 == 0 or last_step:
             model.eval()
             val_loader.reset()
             with torch.no_grad():
@@ -449,6 +465,19 @@ if __name__ == "__main__":
                     dist.all_reduce(val_loss_accum, op=dist.ReduceOp.AVG)
                 if master_process:
                     logger.info(f"Validation loss: {val_loss_accum:.4f}")
+                    with open(log_file, "a") as f:
+                        f.write(f"{step} val {val_loss_accum:.4f}\n")
+                    if step > 0 and (step % 5000 == 0 or last_step):
+                        checkpoint_path = os.path.join(log_dir, f"checkpoint_{step:05d}.pth")
+                        checkpoint = {
+                            "model": raw_model.state_dict(),
+                            "config": raw_model.config,
+                            "step": step,
+                            "val_loss": val_loss_accum,
+                            "optimizer": optimizer.state_dict(),
+                        }
+                        torch.save(checkpoint, checkpoint_path)
+                        logger.info(f"Saved checkpoint to {checkpoint_path}")
 
         # once in a while generate from the model (except step 0, which is noise)
         if ((step > 0 and step % 250 == 0) or last_step) and (not use_compile):
@@ -496,6 +525,9 @@ if __name__ == "__main__":
             x = x.to(device)
             y = y.to(device)
 
+            if ddp:
+                model.require_backward_grad_sync = micro_batch == gradient_accumulation_steps - 1
+
             # Use autocast to automatically cast the model to the correct precision
             with torch.autocast(device_type=device_type, dtype=torch.bfloat16):
                 logits, loss = model(x, y)
@@ -504,8 +536,6 @@ if __name__ == "__main__":
             loss = loss / gradient_accumulation_steps
             loss_accum += loss.item()
 
-            if ddp:
-                model.require_backward_grad_sync = micro_batch == gradient_accumulation_steps - 1
             # By keeping the loss in the loop, we can accumulate the gradients over the micro batches
             loss.backward()
 
@@ -520,7 +550,7 @@ if __name__ == "__main__":
             param_group["lr"] = lr
 
         optimizer.step()
-        if device == "cuda":
+        if device_type == "cuda":
             torch.cuda.synchronize()  # This will wait for all scheduled work to finish
         t1 = time.time()
         dt = (t1 - t0) * 1000
@@ -532,6 +562,8 @@ if __name__ == "__main__":
                 f"Iteration: {step} | Loss: {loss_accum} | lr {lr:.6f} | Norm: {norm:.2f} | Time: {dt:.2f}ms | "
                 f"Tokens/s: {tokens_per_sec:.2f}"
             )
+            with open(log_file, "a") as f:
+                f.write(f"{step} train {loss_accum:.6f}\n")
 
         if ddp:
             destroy_process_group()
