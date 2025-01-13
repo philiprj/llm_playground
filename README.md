@@ -4,14 +4,19 @@ Repository for exploring LLMs and related frameworks
 
 ## Setup
 
-Ensure Python 3.11 is installed with pyenv and poetry is installed with pipx. Then run:
+Ensure Python 3.10 is installed with pyenv and poetry is installed with pipx. Then run:
 
 ```bash
-pyenv local 3.11
+pyenv local 3.10
 make setup
 ```
 
 This will install the project dependencies and pre-commit hooks.
+
+
+## GPT Training
+
+In the `src/gpt` and `src/nano_gpt` directories, you can find the code for training GPT-2 and GPT-3. This is based on the [nano_gpt](https://github.com/karpathy/nano_gpt) repository. This is setup to recreate GPT-2 but it can be easily modified to train GPT-3 with increased dataset size and longer training times.
 
 ## LangChain
 
