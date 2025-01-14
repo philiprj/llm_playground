@@ -253,18 +253,20 @@ class GPT(nn.Module):
             {"params": decay_params, "weight_decay": weight_decay},
             {"params": no_decay_params, "weight_decay": 0.0},
         ]
-        logger.info(
-            f"num decayed parameter tensors: {len(decay_params)}, "
-            f"with {sum(p.numel() for p in decay_params):,} parameters"
-        )
-        logger.info(
-            f"num non-decayed parameter tensors: {len(no_decay_params)}, "
-            f"with {sum(p.numel() for p in no_decay_params):,} parameters"
-        )
+        if master_process:
+            logger.info(
+                f"num decayed parameter tensors: {len(decay_params)}, "
+                f"with {sum(p.numel() for p in decay_params):,} parameters"
+            )
+            logger.info(
+                f"num non-decayed parameter tensors: {len(no_decay_params)}, "
+                f"with {sum(p.numel() for p in no_decay_params):,} parameters"
+            )
         # Fused AdamW optimizer
         fused_available = "fused" in inspect.signature(torch.optim.AdamW).parameters
         use_fused = fused_available and device_type == "cuda"
-        logger.info(f"Using fused AdamW: {use_fused}")
+        if master_process:
+            logger.info(f"Using fused AdamW: {use_fused}")
 
         optimizer = torch.optim.AdamW(
             optimizer_grouped_parameters, lr=learning_rate, betas=(0.9, 0.95), eps=1e-8, fused=use_fused
@@ -361,7 +363,8 @@ if __name__ == "__main__":
         device = f"cuda:{ddp_local_rank}"
         torch.cuda.set_device(ddp_local_rank)
         master_process = ddp_rank == 0  # For logging and checkpointing (on)
-        logger.info(f"Using device: {device}")
+        if master_process:
+            logger.info(f"Using device: {device}")
     else:
         ddp_rank = 0
         ddp_world_size = 1
@@ -530,6 +533,7 @@ if __name__ == "__main__":
                 model.require_backward_grad_sync = micro_batch == gradient_accumulation_steps - 1
 
             # Use autocast to automatically cast the model to the correct precision
+            # Note running this on older GPUs may cause problems if not suported (Tesla gpus)
             with torch.autocast(device_type=device_type, dtype=torch.bfloat16):
                 logits, loss = model(x, y)
 
