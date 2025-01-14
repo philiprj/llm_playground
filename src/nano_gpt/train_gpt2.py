@@ -339,15 +339,15 @@ class DataLoaderLite:
 if __name__ == "__main__":
     # Hyperparameters
     # total_batch_size = 524288  # 2**19 ~ 0.5M used for nice number
-    total_batch_size = 1024  # 2**20 ~ 1M used for nice number
-    B = 8  # Micro batch size (real is 16/32/64 - depends on GPU size)
-    T = 32  # Sequence length   (real is 1024)
+    total_batch_size = 131072  # 2**18 ~ 1M used for nice number
+    B = 16  # Micro batch size (real is 16/32/64 - depends on GPU size)
+    T = 1024  # Sequence length   (real is 1024)
 
     # Learning rate and optimizer parameters
     max_lr = 6e-4
     min_lr = max_lr * 0.1
-    warmup_steps = 10  # Real is 715
-    max_steps = 30  # Real is 19073
+    warmup_steps = 250  # Real is 715
+    max_steps = 5000  # Real is 19073
 
     # Initialize the distributed process group
     # torchrun command sets the env variables RANK, WORLD_SIZE
@@ -361,6 +361,7 @@ if __name__ == "__main__":
         device = f"cuda:{ddp_local_rank}"
         torch.cuda.set_device(ddp_local_rank)
         master_process = ddp_rank == 0  # For logging and checkpointing (on)
+        logger.info(f"Using device: {device}")
     else:
         ddp_rank = 0
         ddp_world_size = 1
@@ -447,7 +448,7 @@ if __name__ == "__main__":
         last_step = step == max_steps - 1
 
         # Validate
-        if step % 100 == 0 or last_step:
+        if step % 250 == 0 or last_step:
             model.eval()
             val_loader.reset()
             with torch.no_grad():
@@ -534,8 +535,7 @@ if __name__ == "__main__":
 
             # We need to scale our loss by the number of micro batches to get the correct gradient
             loss = loss / gradient_accumulation_steps
-            loss_accum += loss.item()
-
+            loss_accum += loss.detach()
             # By keeping the loss in the loop, we can accumulate the gradients over the micro batches
             loss.backward()
 
