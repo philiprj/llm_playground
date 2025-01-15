@@ -341,8 +341,8 @@ class DataLoaderLite:
 if __name__ == "__main__":
     # Hyperparameters
     # total_batch_size = 524288  # 2**19 ~ 0.5M used for nice number
-    total_batch_size = 131072  # 2**18 ~ 1M used for nice number
-    B = 16  # Micro batch size (real is 16/32/64 - depends on GPU size)
+    total_batch_size = 262144  # 2**18 ~ 1M used for nice number
+    B = 32  # Micro batch size (real is 16/32/64 - depends on GPU size)
     T = 1024  # Sequence length   (real is 1024)
 
     # Learning rate and optimizer parameters
@@ -569,5 +569,5 @@ if __name__ == "__main__":
             with open(log_file, "a") as f:
                 f.write(f"{step} train {loss_accum:.6f}\n")
 
-        if ddp:
-            destroy_process_group()
+    if ddp:
+        destroy_process_group()
