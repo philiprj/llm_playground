@@ -24,6 +24,7 @@ torch = ">=2.0, <2.3"
 pypdf = "*"
 openai = ">=1.55.3"
 httpx = "==0.27.2"
+wandb = "*"
 
 [tool.poetry.group.langchain]
 optional = false
@@ -44,6 +45,7 @@ jupyter = "*"                  # Core Jupyter metapackage
 jupyterlab = "*"               # JupyterLab IDE interface
 python-dotenv = "*"            # Load environment variables from .env file
 ruff = "*"                     # Fast linter and formatter (replaces black, isort, flake8)
+matplotlib = "*"               # Plotting
 mypy = "*"                     # Static type checking
 mkdocs = "*"                   # Documentation
 sphinx = "*"                   # Documentation generator

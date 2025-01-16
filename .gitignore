@@ -169,3 +169,6 @@ tmp/
 # FineWeb-Edu dataset
 edu_fineweb10B/
 modeltrain/
+
+*.bin
+*.txt
