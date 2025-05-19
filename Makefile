@@ -25,7 +25,7 @@ help:
 	@echo "${GREEN}make clean${NC}          Remove build/temp files"
 
 setup:
-	$(POETRY) install
+	$(POETRY) install --with dev
 	$(POETRY) run pre-commit install
 
 lock:
