@@ -6,7 +6,9 @@ authors = ["philiprj <philiprj2@gmail.com>"]
 readme = "README.md"
 repository = "https://github.com/philiprj/llm_playground"
 keywords = ["llm"]
-package-mode = false
+package-mode = true
+packages = [{ include = "src" }]
+
 
 [build-system]
 requires = ["poetry-core"]
