@@ -74,7 +74,7 @@ def apply_rotary_embedding(x: torch.Tensor, freqs_complex: torch.Tensor, device:
     x_rotated = torch.view_as_real(x_rotated)
     # (B, seq_len, n_heads, head_dim // 2, 2) -> (B, seq_len, n_heads, head_dim)
     x_out = x_rotated.reshape(*x.shape)
-    return x_out.astype(x).to(device)
+    return x_out.type_as(x).to(device)
 
 
 class RMSNorm(nn.Module):
@@ -95,7 +95,7 @@ class RMSNorm(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # (Dim) * (B, seq_len, Dim) -> (B, seq_len, Dim)
-        return self._norm(x.float()).astype(x) * self.weight
+        return self.weight * self._norm(x.float()).type_as(x)
 
 
 def repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:
@@ -215,7 +215,7 @@ class FeedForward(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         swish = F.silu(self.w1(x))
-        x_v = self.w3(swish)
+        x_v = self.w3(x)
         x = swish * x_v
         x = self.w2(x)
         return x
@@ -265,7 +265,6 @@ class Transformer(nn.Module):
         # Embeddings
         self.tok_embeddings = nn.Embedding(args.vocab_size, args.dim)
 
-        # TODO: Add repeating encoder blocks
         self.layers = nn.ModuleList()
         for _ in range(args.n_layers):
             self.layers.append(EncoderBlock(args))

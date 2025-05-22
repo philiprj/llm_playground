@@ -74,60 +74,63 @@ class LLaMA:
 
     def text_completion(
         self, prompts: list[str], temperature: float = 0.6, top_p: float = 0.9, max_gen_len: int | None = None
-    ) -> list[str]:
+    ):
         if max_gen_len is None:
-            max_gen_len = self.args.max_seq_len
-
-        # Encode the prompts
+            max_gen_len = self.args.max_seq_len - 1
+        # Convert each prompt into tokens
         prompt_tokens = [self.tokenizer.encode(prompt, out_type=int, add_bos=True, add_eos=False) for prompt in prompts]
-        # Make sure batch size is not too large
+        # Make sure the batch size is not too large
         batch_size = len(prompt_tokens)
-        assert batch_size <= self.args.max_batch_size, f"Batch size {batch_size} is too large"
+        assert (
+            batch_size <= self.args.max_batch_size
+        ), f"batch size must be less than or equal to {self.args.max_batch_size}"
         max_prompt_len = max(len(prompt) for prompt in prompt_tokens)
-        assert max_prompt_len <= self.args.max_seq_len, f"Max prompt length {max_prompt_len} is too long"
-        total_len = min(self.args.max_seq_len, max_prompt_len + max_gen_len)
+        # Make sure the prompt length is not larger than the maximum sequence length
+        assert (
+            max_prompt_len <= self.args.max_seq_len
+        ), f"prompt length must be less than or equal to {self.args.max_seq_len}"
+        total_len = min(self.args.max_seq_len, max_gen_len + max_prompt_len)
 
-        # Create a list that will contain the tokens for each prompt
+        # Create the list that will contain the generated tokens, along with the initial prompt tokens
         pad_id = self.tokenizer.pad_id()
-        tokens = torch.full((batch_size, total_len), pad_id, dtype=torch.long, device=self.args.device)
+        tokens = torch.full((batch_size, total_len), pad_id, dtype=torch.long, device=device)
         for k, t in enumerate(prompt_tokens):
-            tokens[k, : len(t)] = torch.tensor(t, dtype=torch.long, device=self.args.device)
+            # Populate the initial tokens with the prompt tokens
+            tokens[k, : len(t)] = torch.tensor(t, dtype=torch.long, device=device)
 
-        eos_reached = torch.Tensor([False] * batch_size, device=self.args.device)
-        prompt_tokens_mask = tokens != pad_id
-
-        for cur_pos in tqdm(range(1, total_len), desc="Generating"):
+        eos_reached = torch.tensor([False] * batch_size, device=device)
+        prompt_tokens_mask = tokens != pad_id  # True if the token is a prompt token, False otherwise
+        cur_iterator = tqdm(range(1, total_len), desc="Generating tokens")
+        for cur_pos in cur_iterator:
             with torch.no_grad():
                 logits = self.model.forward(tokens[:, cur_pos - 1 : cur_pos], cur_pos)
-
-            # Temperature applied before softmax
             if temperature > 0:
+                # The temperature is applied before the softmax
                 probs = torch.softmax(logits[:, -1] / temperature, dim=-1)
                 next_token = self._sample_top_p(probs, top_p)
-            # Greedy sampling
             else:
+                # Greedily select the token with the max probability
                 next_token = torch.argmax(logits[:, -1], dim=-1)
 
-            next_token = next_token.unsqueeze(-1)
-            # Only  replace token if it is padding tokens
+            next_token = next_token.reshape(-1)
+            # Only replace token if it is a padding token
             next_token = torch.where(prompt_tokens_mask[:, cur_pos], tokens[:, cur_pos], next_token)
-
             tokens[:, cur_pos] = next_token
-            # EOS reached if the token is the eos token
-            eos_reached |= (~prompt_tokens_mask[:, cur_pos]) & (next_token == self.tokenizer.eos_id())
-            if eos_reached.all():
+            # EOS is reached only if we found an EOS token for a padding position
+            eos_reached |= (~prompt_tokens_mask[:, cur_pos]) & (next_token == self.tokenizer.eos_id)
+            if all(eos_reached):
                 break
 
-        output_tokens = []
-        output_text = []
+        out_tokens = []
+        out_text = []
         for _, current_prompt_tokens in enumerate(tokens.tolist()):
-            if self.tokenizer.eos_id() in current_prompt_tokens:
-                eos_idx = current_prompt_tokens.index(self.tokenizer.eos_id())
+            # Cut to the EOS token, if present
+            if self.tokenizer.eos_id in current_prompt_tokens:
+                eos_idx = current_prompt_tokens.index(self.tokenizer.eos_id)
                 current_prompt_tokens = current_prompt_tokens[:eos_idx]
-            output_tokens.append(current_prompt_tokens)
-            output_text.append(self.tokenizer.decode(current_prompt_tokens))
-
-        return (output_text, output_tokens)
+            out_tokens.append(current_prompt_tokens)
+            out_text.append(self.tokenizer.decode(current_prompt_tokens))
+        return (out_tokens, out_text)
 
     def _sample_top_p(self, probs: torch.Tensor, top_p: float) -> torch.Tensor:
         """Sample from the top-p distribution.
@@ -148,14 +151,7 @@ class LLaMA:
 if __name__ == "__main__":
     torch.manual_seed(0)
     allow_cuda = False
-    allow_mps = False
-    device = (
-        "cuda"
-        if torch.cuda.is_available() and not allow_cuda
-        else "mps"
-        if torch.backends.mps.is_available() and not allow_mps
-        else "cpu"
-    )
+    device = "cuda" if torch.cuda.is_available() and allow_cuda else "cpu"
 
     prompts = [
         "Simply put, the theory of relativity states that ",
