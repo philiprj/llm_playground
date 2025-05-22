@@ -172,3 +172,7 @@ modeltrain/
 
 *.bin
 *.txt
+
+# LLaMA 2 model and tokenizer files
+src/llama_2/llama-2-7b/
+src/llama_2/tokenizer.model
